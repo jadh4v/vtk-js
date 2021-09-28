@@ -54,7 +54,7 @@ actor.getProperty().setRGBTransferFunction(0, ctfun);
 actor.getProperty().setScalarOpacity(0, ofun);
 actor.getProperty().setScalarOpacityUnitDistance(0, 3.0);
 actor.getProperty().setInterpolationTypeToLinear();
-actor.getProperty().setUseGradientOpacity(0, true);
+// actor.getProperty().setUseGradientOpacity(0, true);
 actor.getProperty().setGradientOpacityMinimumValue(0, 2);
 actor.getProperty().setGradientOpacityMinimumOpacity(0, 0.0);
 actor.getProperty().setGradientOpacityMaximumValue(0, 20);
