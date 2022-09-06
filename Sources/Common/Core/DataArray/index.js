@@ -161,7 +161,7 @@ function vtkDataArray(publicAPI, model) {
 
   publicAPI.getRange = (componentIndex = -1) => {
     const rangeIdx =
-      componentIndex < 0 ? model.numberOfComponents : componentIndex;
+      componentIndex < 0 ? (model.numberOfComponents > 1 ? model.numberOfComponents : 0) : componentIndex;
     let range = null;
 
     if (!model.ranges) {
