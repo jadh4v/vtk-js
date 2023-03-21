@@ -205,7 +205,8 @@ async function update() {
   console.log('Fetching/downloading the input file, please wait...');
   const zipFileData = await vtkLiteHttpDataAccessHelper.fetchBinary(
     // data.kitware.com --> MixedImagesMultiFrameRGBGray.zip
-    `https://data.kitware.com/api/v1/item/63c1c7f96d3fc641a02d7f27/download`
+    // `https://data.kitware.com/api/v1/item/63c1c7f96d3fc641a02d7f27/download`
+    `https://data.kitware.com/api/v1/item/6413c28e7b0dfcc98f66bba8/download`
   );
 
   console.log('Fetching/downloading input file done!');
