@@ -478,6 +478,11 @@ function vtkInteractorStyleManipulator(publicAPI, model) {
 
   //-------------------------------------------------------------------------
   publicAPI.handleMouseWheel = (callData) => {
+    console.log(
+      'style.currentWheelManipulator: ',
+      model.currentWheelManipulator
+    );
+
     if (
       model.currentWheelManipulator &&
       model.currentWheelManipulator.onScroll
@@ -489,6 +494,12 @@ function vtkInteractorStyleManipulator(publicAPI, model) {
         model.cachedMousePosition
       );
       publicAPI.invokeInteractionEvent(INTERACTION_EVENT);
+    } else if (model._interactor.resetWheelTimeOut) {
+      // We did not find a manipulator so we end the wheel event,
+      // by resetting the wheel event timeout callback.
+      // This will allow the next wheel event to call the handleStartMouseWheel()
+      model._interactor.resetWheelTimeOut();
+      vtkDebugMacro('No manipulator found');
     }
   };
 

@@ -751,9 +751,14 @@ function vtkRenderWindowInteractor(publicAPI, model) {
         wheelCoefficient = 1;
       }
     }
+    console.log('wheelCoefficient: ', wheelCoefficient);
+    console.log('callData.spinY: ', callData.spinY);
+    // set coefficient to always 1
+    wheelCoefficient = 1;
     callData.spinY /= wheelCoefficient;
 
     if (model.wheelTimeoutID === 0) {
+      console.log('startMouseWheelEvent');
       publicAPI.startMouseWheelEvent(callData);
       publicAPI.mouseWheelEvent(callData);
     } else {
@@ -763,12 +768,19 @@ function vtkRenderWindowInteractor(publicAPI, model) {
 
     if (model.mouseScrollDebounceByPass) {
       publicAPI.extendAnimation(600);
+      console.log('endMouseWheelEvent');
+      publicAPI.endMouseWheelEvent();
+      model.wheelTimeoutID = 0;
+    } else if (model.wheelTimeoutID === -1) {
+      // manipulator was not found
+      console.log('terminate wheel event');
       publicAPI.endMouseWheelEvent();
       model.wheelTimeoutID = 0;
     } else {
       // start a timer to keep us animating while we get wheel events
       model.wheelTimeoutID = setTimeout(() => {
         publicAPI.extendAnimation(600);
+        console.log('endMouseWheelEvent');
         publicAPI.endMouseWheelEvent();
         model.wheelTimeoutID = 0;
       }, 200);
@@ -1179,6 +1191,11 @@ function vtkRenderWindowInteractor(publicAPI, model) {
       _bindEvents();
     }
     return res;
+  };
+
+  publicAPI.resetWheelTimeOut = () => {
+    clearTimeout(model.wheelTimeoutID);
+    model.wheelTimeoutID = -1;
   };
 
   // Stop animating if the renderWindowInteractor is deleted.
