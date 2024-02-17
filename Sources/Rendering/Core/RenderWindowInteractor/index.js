@@ -102,7 +102,9 @@ function vtkRenderWindowInteractor(publicAPI, model) {
   const pointerCache = new Map();
 
   // Factor to apply on wheel spin.
-  let wheelCoefficient = 1;
+  // This value starts higher at 10, and maintains the minimum spin
+  // value that it encounters to normalize for a single tick.
+  let wheelCoefficient = 10;
 
   // Public API methods
 
@@ -272,7 +274,7 @@ function vtkRenderWindowInteractor(publicAPI, model) {
     clearTimeout(model.wheelTimeoutID);
     model.moveTimeoutID = 0;
     model.wheelTimeoutID = 0;
-    wheelCoefficient = 1.0;
+    // wheelCoefficient = 10.0;
 
     const { container } = model;
     if (container) {
@@ -745,7 +747,7 @@ function vtkRenderWindowInteractor(publicAPI, model) {
       // but small enough to detect some common edge case mice
       if (Math.abs(callData.spinY) >= 0.3) {
         // Event is coming from mouse wheel
-        wheelCoefficient = Math.abs(callData.spinY);
+        wheelCoefficient = Math.min(wheelCoefficient, Math.abs(callData.spinY));
       } else {
         // Event is coming from trackpad
         wheelCoefficient = 1;
@@ -754,7 +756,7 @@ function vtkRenderWindowInteractor(publicAPI, model) {
     console.log('wheelCoefficient: ', wheelCoefficient);
     console.log('callData.spinY: ', callData.spinY);
     // set coefficient to always 1
-    wheelCoefficient = 1;
+    // wheelCoefficient = 1;
     callData.spinY /= wheelCoefficient;
 
     if (model.wheelTimeoutID === 0) {

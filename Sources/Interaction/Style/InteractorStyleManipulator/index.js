@@ -166,26 +166,31 @@ function vtkInteractorStyleManipulator(publicAPI, model) {
     publicAPI.removeAllKeyboardManipulators();
     publicAPI.removeAllVRManipulators();
     publicAPI.removeAllGestureManipulators();
+    publicAPI.resetCurrentManipulator();
   };
 
   //-------------------------------------------------------------------------
   publicAPI.removeAllMouseManipulators = () => {
     model.mouseManipulators = [];
+    publicAPI.resetCurrentManipulator('vtkCompositeMouseManipulator');
   };
 
   //-------------------------------------------------------------------------
   publicAPI.removeAllKeyboardManipulators = () => {
     model.keyboardManipulators = [];
+    publicAPI.resetCurrentManipulator('vtkCompositeKeyboardManipulator');
   };
 
   //-------------------------------------------------------------------------
   publicAPI.removeAllVRManipulators = () => {
     model.vrManipulators = [];
+    publicAPI.resetCurrentManipulator('vtkCompositeVRManipulator');
   };
 
   //-------------------------------------------------------------------------
   publicAPI.removeAllGestureManipulators = () => {
     model.gestureManipulators = [];
+    publicAPI.resetCurrentManipulator('vtkCompositeGestureManipulator');
   };
 
   //-------------------------------------------------------------------------
@@ -195,6 +200,7 @@ function vtkInteractorStyleManipulator(publicAPI, model) {
       return false;
     }
     list.splice(index, 1);
+    publicAPI.resetCurrentManipulator(manipulator);
     publicAPI.modified();
     return true;
   };
@@ -257,9 +263,48 @@ function vtkInteractorStyleManipulator(publicAPI, model) {
     model.gestureManipulators.length;
 
   //-------------------------------------------------------------------------
-  publicAPI.resetCurrentManipulator = () => {
-    model.currentManipulator = null;
+  publicAPI.resetCurrentManipulator = (typeOrInstance = '') => {
+    if (typeOrInstance === '') {
+      model.currentManipulator = null;
+      model.currentWheelManipulator = null;
+    } else {
+      const pred = (m, t) => m && (typeof t === 'string' ? m.isA(t) : m === t);
+      if (pred(model.currentManipulator)) {
+        model.currentManipulator = null;
+      }
+      if (pred(model.currentWheelManipulator)) {
+        model.currentWheelManipulator = null;
+      }
+      /*
+      if (model.currentManipulator && model.currentManipulator.isA(typeOrInstance)) {
+        model.currentManipulator = null;
+      }
+      if (model.currentWheelManipulator && model.currentWheelManipulator.isA(typeOrInstance)) {
+        model.currentWheelManipulator = null;
+      }
+      */
+    }
+  };
+
+  //-------------------------------------------------------------------------
+  publicAPI.resetCurrentMouseManipulators = () => {
+    if (
+      model.currentManipulator &&
+      model.currentManipulator.IsA('vtkCompositeMouseManipulator')
+    ) {
+      model.currentManipulator = null;
+    }
     model.currentWheelManipulator = null;
+  };
+
+  //-------------------------------------------------------------------------
+  publicAPI.resetCurrentKeyboardManipulators = () => {
+    if (
+      model.currentManipulator &&
+      model.currentManipulator.IsA('vtkCompositeKeyboardManipulator')
+    ) {
+      model.currentManipulator = null;
+    }
   };
 
   //-------------------------------------------------------------------------
@@ -463,6 +508,35 @@ function vtkInteractorStyleManipulator(publicAPI, model) {
   };
 
   //-------------------------------------------------------------------------
+  const _internalWheelHandler = (callData) => {
+    let manipulator = null;
+    let count = model.mouseManipulators.length;
+    while (count--) {
+      const manip = model.mouseManipulators[count];
+      if (
+        manip &&
+        manip.isScrollEnabled() &&
+        manip.getShift() === callData.shiftKey &&
+        manip.getControl() === callData.controlKey &&
+        manip.getAlt() === callData.altKey
+      ) {
+        manipulator = manip;
+      }
+    }
+    if (manipulator) {
+      model.currentWheelManipulator = manipulator;
+      model.currentWheelManipulator.onStartScroll(
+        model._interactor,
+        callData.pokedRenderer,
+        callData.spinY
+      );
+      model.currentWheelManipulator.startInteraction();
+    } else {
+      vtkDebugMacro('Internal handler: No manipulator found');
+    }
+  };
+
+  //-------------------------------------------------------------------------
   publicAPI.handleEndMouseWheel = () => {
     if (!model.currentWheelManipulator) {
       return;
@@ -482,6 +556,10 @@ function vtkInteractorStyleManipulator(publicAPI, model) {
       'style.currentWheelManipulator: ',
       model.currentWheelManipulator
     );
+    if (!model.currentWheelManipulator) {
+      // fetch the latest eligible manipulator
+      _internalWheelHandler(callData);
+    }
 
     if (
       model.currentWheelManipulator &&
@@ -498,7 +576,7 @@ function vtkInteractorStyleManipulator(publicAPI, model) {
       // We did not find a manipulator so we end the wheel event,
       // by resetting the wheel event timeout callback.
       // This will allow the next wheel event to call the handleStartMouseWheel()
-      model._interactor.resetWheelTimeOut();
+      // model._interactor.resetWheelTimeOut();
       vtkDebugMacro('No manipulator found');
     }
   };
