@@ -11,6 +11,7 @@ import vtkImageSlice from '@kitware/vtk.js/Rendering/Core/ImageSlice';
 import vtkInteractorStyleImage from '@kitware/vtk.js/Interaction/Style/InteractorStyleImage';
 import vtkColorTransferFunction from '@kitware/vtk.js/Rendering/Core/ColorTransferFunction';
 import vtkPiecewiseFunction from '@kitware/vtk.js/Common/DataModel/PiecewiseFunction';
+import vtkMath from '@kitware/vtk.js/Common/Core/Math';
 
 const { SlicingMode } = Constants;
 
@@ -28,13 +29,13 @@ const renderWindow = fullScreenRenderer.getRenderWindow();
 
 const rtSource = vtkRTAnalyticSource.newInstance();
 rtSource.setWholeExtent(0, 200, 0, 200, 0, 200);
-rtSource.setCenter(100, 100, 100);
+rtSource.setCenter(0, 0, 0);
 rtSource.setStandardDeviation(0.3);
 
 const mapper = vtkImageMapper.newInstance();
 mapper.setInputConnection(rtSource.getOutputPort());
 mapper.setSliceAtFocalPoint(true);
-mapper.setSlicingMode(SlicingMode.Z);
+mapper.setSlicingMode(SlicingMode.K);
 // mapper.setZSlice(5);
 
 const rgb = vtkColorTransferFunction.newInstance();
@@ -85,6 +86,67 @@ switch (mapper.getSlicingMode()) {
 camera.setParallelProjection(true);
 renderer.resetCamera();
 renderWindow.render();
+
+/*
+const superHandleMouseMove = iStyle.handleMouseMove;
+iStyle.handleMouseMove = (callData) => {
+  superHandleMouseMove(callData);
+  console.log('I was called');
+};
+*/
+iStyle.onEndInteractionEvent(() => {
+  console.log('Compute visible image index bounds: ');
+  // This step assumes that we only have a single view in our window.
+  // If you have multiple viewports, you will need to find out which
+  // view you want to work on.
+  const view = renderWindow.getViews()[0];
+  const viewSize = view.getSize();
+
+  const image = mapper.getInputData();
+  const extent = image.getExtent();
+  const minIJK = [extent[0], extent[2], extent[4]];
+  const maxIJK = [extent[1], extent[3], extent[5]];
+
+  const p0 = iStyle.computeDisplayToWorld(renderer, 0, 0, 0);
+  let i0 = image.worldToIndex(p0);
+  i0 = vtkMath.clampVector(i0, minIJK, maxIJK);
+
+  const p1 = iStyle.computeDisplayToWorld(
+    renderer,
+    viewSize[0],
+    viewSize[1],
+    0
+  );
+
+  let i1 = image.worldToIndex(p1);
+  i1 = vtkMath.clampVector(i1, minIJK, maxIJK);
+
+  const sliceNumber = mapper.getSlice();
+  console.log('sliceNumber: ', sliceNumber);
+  const slicingMode = mapper.getSlicingMode();
+  const sdim = slicingMode % 3;
+  let v = [0, 0, 0];
+  switch (slicingMode) {
+    case SlicingMode.I:
+    case SlicingMode.J:
+    case SlicingMode.K:
+      i0[sdim] = sliceNumber;
+      i1[sdim] = sliceNumber;
+      break;
+    case SlicingMode.X:
+    case SlicingMode.Y:
+    case SlicingMode.Z:
+      v[sdim] = sliceNumber;
+      v = image.worldToIndex(v);
+      i0[sdim] = vtkMath.clampVector(v, minIJK, maxIJK)[sdim];
+      i1[sdim] = vtkMath.clampVector(v, minIJK, maxIJK)[sdim];
+      break;
+    default:
+  }
+
+  console.log('i0 = ', i0);
+  console.log('i1 = ', i1);
+});
 
 // -----------------------------------------------------------
 // Make some variables global so that you can inspect and
