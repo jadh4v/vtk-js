@@ -37,22 +37,21 @@ iStyle.setInteractionMode('IMAGE_SLICING');
 renderWindow.getInteractor().setInteractorStyle(iStyle);
 
 // ----------------------------------------------------------------------------
-// Piecewise function composition
+// Piecewise function composition — DICOM value transform pipeline
 //
-// We maintain two component functions:
-//   opacityFn   — window/level ramp (controls visible intensity range)
-//   composeFn   — threshold fade  (suppresses values above a threshold)
+// Transforms are chained in order and stored as piecewise linear functions:
+//   modalityFn  — modality LUT (maps raw storage values to manufacturer units)
+//   voiFn       — values-of-interest / window-level (maps units to display range)
 //
-// Their pointwise product is stored in resultFn and applied to the actor,
-// which is the "composed" piecewise function rendered by ImageMapper.
+// The composed result is stored in resultFn and applied to the actor.
 // ----------------------------------------------------------------------------
 
-const opacityFn = vtkPiecewiseFunction.newInstance();
-const composeFn = vtkPiecewiseFunction.newInstance();
+const modalityFn = vtkPiecewiseFunction.newInstance();
+const voiFn = vtkPiecewiseFunction.newInstance();
 const resultFn = vtkPiecewiseFunction.newInstance();
 const colorFn = vtkColorTransferFunction.newInstance();
 
-// Collect all x-positions from both functions and evaluate the product.
+// Collect all x-positions across all transform functions and chain their outputs.
 // getDataPointer() returns a flat [x0,y0,x1,y1,...] array.
 function recompose(dataRange) {
   const xSet = new Set();
@@ -64,46 +63,47 @@ function recompose(dataRange) {
       }
     }
   };
-  addXsFromFn(opacityFn);
-  addXsFromFn(composeFn);
+  addXsFromFn(modalityFn);
+  addXsFromFn(voiFn);
   // Also add range endpoints so the composed function spans the full range
   xSet.add(dataRange[0]);
   xSet.add(dataRange[1]);
 
+  const fnList = [modalityFn, voiFn];
+
   const xs = Array.from(xSet).sort((a, b) => a - b);
   resultFn.removeAllPoints();
   xs.forEach((x) => {
-    const a = opacityFn.getValue(x);
-    const b = composeFn.getValue(x);
-    resultFn.addPoint(x, a * b);
+    const finalOutput = fnList.reduce((val, fn) => fn.getValue(val), x);
+    resultFn.addPoint(x, finalOutput);
   });
 
   actor.getProperty().setPiecewiseFunction(0, resultFn);
 }
 
-function buildOpacityFunction(dataRange, colorWindow, colorLevel) {
+function buildModalityFunction(dataRange, colorWindow, colorLevel) {
   const [min, max] = dataRange;
   const lo = Math.max(min, colorLevel - colorWindow * 0.5);
   const hi = Math.min(max, colorLevel + colorWindow * 0.5);
 
-  opacityFn.removeAllPoints();
-  opacityFn.addPoint(min, 0);
-  opacityFn.addPoint(lo, 0);
-  opacityFn.addPoint(hi, 1);
-  opacityFn.addPoint(max, 1);
+  modalityFn.removeAllPoints();
+  modalityFn.addPoint(min, 0);
+  modalityFn.addPoint(lo, 0);
+  modalityFn.addPoint(hi, 1);
+  modalityFn.addPoint(max, 1);
 }
 
-function buildComposeFn(dataRange, threshold, softness) {
+function buildVoiFn(dataRange, threshold, softness) {
   const [min, max] = dataRange;
   const span = (max - min) * softness;
   const lo = Math.max(min, threshold - span);
   const hi = Math.min(max, threshold + span);
 
-  composeFn.removeAllPoints();
-  composeFn.addPoint(min, 1);
-  composeFn.addPoint(lo, 1);
-  composeFn.addPoint(hi, 0);
-  composeFn.addPoint(max, 0);
+  voiFn.removeAllPoints();
+  voiFn.addPoint(min, 1);
+  voiFn.addPoint(lo, 1);
+  voiFn.addPoint(hi, 0);
+  voiFn.addPoint(max, 0);
 }
 
 function buildColorFunction(dataRange) {
@@ -270,8 +270,8 @@ function renderDicom(file) {
     const threshold = Math.round(colorLevel + colorWindow * 0.3);
 
     buildColorFunction(dataRange);
-    buildOpacityFunction(dataRange, colorWindow, colorLevel);
-    buildComposeFn(dataRange, threshold, 0.1);
+    buildModalityFunction(dataRange, colorWindow, colorLevel);
+    buildVoiFn(dataRange, threshold, 0.1);
     recompose(dataRange);
 
     if (!renderer.getActors().length) {
@@ -293,9 +293,9 @@ function renderDicom(file) {
     });
     controlPanel.appendChild(heading);
 
-    // ---- Window/level ----
+    // ---- Modality transform ----
     const wlHeading = document.createElement('div');
-    wlHeading.innerText = 'Opacity ramp (window / level)';
+    wlHeading.innerText = 'Modality transform (window / level)';
     Object.assign(wlHeading.style, {
       fontSize: '11px',
       color: '#aaa',
@@ -311,7 +311,7 @@ function renderDicom(file) {
       colorWindow,
       1,
       (val) => {
-        buildOpacityFunction(dataRange, val, Number(levelInput.value));
+        buildModalityFunction(dataRange, val, Number(levelInput.value));
         recompose(dataRange);
         renderWindow.render();
       }
@@ -325,16 +325,16 @@ function renderDicom(file) {
       colorLevel,
       1,
       (val) => {
-        buildOpacityFunction(dataRange, Number(windowInput.value), val);
+        buildModalityFunction(dataRange, Number(windowInput.value), val);
         recompose(dataRange);
         renderWindow.render();
       }
     ));
     controlPanel.appendChild(levelInput.parentElement);
 
-    // ---- Compose function ----
+    // ---- VOI transform ----
     const composeHeading = document.createElement('div');
-    composeHeading.innerText = 'Compose function (threshold fade)';
+    composeHeading.innerText = 'VOI transform (values of interest)';
     Object.assign(composeHeading.style, {
       fontSize: '11px',
       color: '#aaa',
@@ -350,7 +350,7 @@ function renderDicom(file) {
       threshold,
       1,
       (val) => {
-        buildComposeFn(dataRange, val, Number(softnessInput.value) / 100);
+        buildVoiFn(dataRange, val, Number(softnessInput.value) / 100);
         recompose(dataRange);
         renderWindow.render();
       }
@@ -364,7 +364,7 @@ function renderDicom(file) {
       10,
       1,
       (val) => {
-        buildComposeFn(dataRange, Number(threshInput.value), val / 100);
+        buildVoiFn(dataRange, Number(threshInput.value), val / 100);
         recompose(dataRange);
         renderWindow.render();
       }
@@ -441,7 +441,7 @@ global.mapper = mapper;
 global.actor = actor;
 global.renderer = renderer;
 global.renderWindow = renderWindow;
-global.opacityFn = opacityFn;
-global.composeFn = composeFn;
+global.modalityFn = modalityFn;
+global.voiFn = voiFn;
 global.resultFn = resultFn;
 global.colorFn = colorFn;
