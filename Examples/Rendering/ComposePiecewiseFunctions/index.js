@@ -42,12 +42,14 @@ renderWindow.getInteractor().setInteractorStyle(iStyle);
 // Transforms are chained in order and stored as piecewise linear functions:
 //   modalityFn  — modality LUT (maps raw storage values to manufacturer units)
 //   voiFn       — values-of-interest / window-level (maps units to display range)
+//   userFn      — interactive user adjustments (window / level ramp)
 //
 // The composed result is stored in resultFn and applied to the actor.
 // ----------------------------------------------------------------------------
 
 const modalityFn = vtkPiecewiseFunction.newInstance();
 const voiFn = vtkPiecewiseFunction.newInstance();
+const userFn = vtkPiecewiseFunction.newInstance();
 const resultFn = vtkPiecewiseFunction.newInstance();
 const colorFn = vtkColorTransferFunction.newInstance();
 
@@ -65,11 +67,12 @@ function recompose(dataRange) {
   };
   addXsFromFn(modalityFn);
   addXsFromFn(voiFn);
+  addXsFromFn(userFn);
   // Also add range endpoints so the composed function spans the full range
   xSet.add(dataRange[0]);
   xSet.add(dataRange[1]);
 
-  const fnList = [modalityFn, voiFn];
+  const fnList = [modalityFn, voiFn, userFn];
 
   const xs = Array.from(xSet).sort((a, b) => a - b);
   resultFn.removeAllPoints();
@@ -81,16 +84,23 @@ function recompose(dataRange) {
   actor.getProperty().setPiecewiseFunction(0, resultFn);
 }
 
-function buildModalityFunction(dataRange, colorWindow, colorLevel) {
+function buildModalityFunction(dataRange) {
+  const [min, max] = dataRange;
+  modalityFn.removeAllPoints();
+  modalityFn.addPoint(min, 0);
+  modalityFn.addPoint(max, 1);
+}
+
+function buildUserFn(dataRange, colorWindow, colorLevel) {
   const [min, max] = dataRange;
   const lo = Math.max(min, colorLevel - colorWindow * 0.5);
   const hi = Math.min(max, colorLevel + colorWindow * 0.5);
 
-  modalityFn.removeAllPoints();
-  modalityFn.addPoint(min, 0);
-  modalityFn.addPoint(lo, 0);
-  modalityFn.addPoint(hi, 1);
-  modalityFn.addPoint(max, 1);
+  userFn.removeAllPoints();
+  userFn.addPoint(min, 0);
+  userFn.addPoint(lo, 0);
+  userFn.addPoint(hi, 1);
+  userFn.addPoint(max, 1);
 }
 
 function buildVoiFn(dataRange, threshold, softness) {
@@ -270,8 +280,9 @@ function renderDicom(file) {
     const threshold = Math.round(colorLevel + colorWindow * 0.3);
 
     buildColorFunction(dataRange);
-    buildModalityFunction(dataRange, colorWindow, colorLevel);
+    buildModalityFunction(dataRange);
     buildVoiFn(dataRange, threshold, 0.1);
+    buildUserFn(dataRange, colorWindow, colorLevel);
     recompose(dataRange);
 
     if (!renderer.getActors().length) {
@@ -293,9 +304,9 @@ function renderDicom(file) {
     });
     controlPanel.appendChild(heading);
 
-    // ---- Modality transform ----
+    // ---- User adjustments ----
     const wlHeading = document.createElement('div');
-    wlHeading.innerText = 'Modality transform (window / level)';
+    wlHeading.innerText = 'User adjustments (window / level)';
     Object.assign(wlHeading.style, {
       fontSize: '11px',
       color: '#aaa',
@@ -311,7 +322,7 @@ function renderDicom(file) {
       colorWindow,
       1,
       (val) => {
-        buildModalityFunction(dataRange, val, Number(levelInput.value));
+        buildUserFn(dataRange, val, Number(levelInput.value));
         recompose(dataRange);
         renderWindow.render();
       }
@@ -325,7 +336,7 @@ function renderDicom(file) {
       colorLevel,
       1,
       (val) => {
-        buildModalityFunction(dataRange, Number(windowInput.value), val);
+        buildUserFn(dataRange, Number(windowInput.value), val);
         recompose(dataRange);
         renderWindow.render();
       }
@@ -443,5 +454,6 @@ global.renderer = renderer;
 global.renderWindow = renderWindow;
 global.modalityFn = modalityFn;
 global.voiFn = voiFn;
+global.userFn = userFn;
 global.resultFn = resultFn;
 global.colorFn = colorFn;
