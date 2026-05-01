@@ -47,14 +47,48 @@ renderWindow.getInteractor().setInteractorStyle(iStyle);
 // The composed result is stored in resultFn and applied to the actor.
 // ----------------------------------------------------------------------------
 
-const modalityFn = vtkPiecewiseFunction.newInstance();
-const voiFn = vtkPiecewiseFunction.newInstance();
+let modalityFn = vtkPiecewiseFunction.newInstance();
+let voiFn = vtkPiecewiseFunction.newInstance();
 const userFn = vtkPiecewiseFunction.newInstance();
 const resultFn = vtkPiecewiseFunction.newInstance();
 const colorFn = vtkColorTransferFunction.newInstance();
 
+/**
+ *
+ * @param {vtkPiecewiseFunction} fn
+ * @returns Output range of the given function as a tuple, using its maximum input range.
+ */
+function getOutputRange(fn) {
+  const inputRange = fn.getRange();
+  return [fn.getValue(inputRange[0]), fn.getValue(inputRange[1])];
+}
+
+function printFnRange(fn, name) {
+  const inputRange = fn.getRange();
+  const outputRange = getOutputRange(fn);
+  console.log(`fn:${name} in-range: ${inputRange[0]}, ${inputRange[1]}, out-range: ${outputRange[0]}, ${outputRange[1]}`);
+}
+
+/**
+ * Build a typically used shift-scale function as a vtkPiecewiseFunction.
+ * @param {*} dataRange
+ * @param {*} shift
+ * @param {*} scale
+ * @returns
+ */
+function buildShiftScaleFunction(dataRange, shift, scale) {
+  const [min, max] = dataRange;
+  const fn = vtkPiecewiseFunction.newInstance();
+  fn.removeAllPoints();
+  fn.addPoint(min, min * scale + shift);
+  fn.addPoint(max, max * scale + shift);
+  fn.setClamping(true);
+  return fn;
+}
+
 // Collect all x-positions across all transform functions and chain their outputs.
 // getDataPointer() returns a flat [x0,y0,x1,y1,...] array.
+// Make sure the texture size doesn't get exceeded.
 function recompose(dataRange) {
   const xSet = new Set();
   const addXsFromFn = (fn) => {
@@ -75,45 +109,49 @@ function recompose(dataRange) {
   const fnList = [modalityFn, voiFn, userFn];
 
   const xs = Array.from(xSet).sort((a, b) => a - b);
+  console.log(`xs: ${xs}`);
   resultFn.removeAllPoints();
   xs.forEach((x) => {
     const finalOutput = fnList.reduce((val, fn) => fn.getValue(val), x);
     resultFn.addPoint(x, finalOutput);
   });
 
+  printFnRange(resultFn, resultFn);
+  console.log(`final func: ${resultFn.getState()}`)
   actor.getProperty().setPiecewiseFunction(0, resultFn);
 }
 
 function buildModalityFunction(dataRange) {
   const [min, max] = dataRange;
-  modalityFn.removeAllPoints();
-  modalityFn.addPoint(min, 0);
-  modalityFn.addPoint(max, 1);
+  const shift = Math.abs(max - min) / 5;
+  const scale = 0.8;
+  console.log(`modality data-range: ${min}, ${max}`);
+  //console.log(`modality shift/scale: ${shift}, ${scale}`);
+  modalityFn = buildShiftScaleFunction(dataRange, shift, scale);
+  printFnRange(modalityFn, "modalityFn");
+}
+
+function buildVoiFn(dataRange) {
+  const [min, max] = dataRange;
+  const shift = Math.abs(max - min) / 10;
+  const scale = 0.9;
+  console.log(`VOI data-range: ${min}, ${max}`);
+  console.log(`VOI shift/scale: ${shift}, ${scale}`);
+  voiFn = buildShiftScaleFunction(dataRange, shift, scale);
+  printFnRange(voiFn, "voiFn");
 }
 
 function buildUserFn(dataRange, colorWindow, colorLevel) {
   const [min, max] = dataRange;
   const lo = Math.max(min, colorLevel - colorWindow * 0.5);
   const hi = Math.min(max, colorLevel + colorWindow * 0.5);
+  console.log(`userFn data-range: ${min}, ${max}`);
+  console.log(`userFn shift/scale: ${lo}, ${hi}`);
 
   userFn.removeAllPoints();
-  userFn.addPoint(min, 0);
-  userFn.addPoint(lo, 0);
-  userFn.addPoint(hi, 1);
-  userFn.addPoint(max, 1);
-}
-
-function buildVoiFn(dataRange, threshold, softness) {
-  const [min, max] = dataRange;
-  const span = (max - min) * softness;
-  const lo = Math.max(min, threshold - span);
-  const hi = Math.min(max, threshold + span);
-
-  voiFn.removeAllPoints();
-  voiFn.addPoint(min, 1);
-  voiFn.addPoint(lo, 1);
-  voiFn.addPoint(hi, 0);
-  voiFn.addPoint(max, 0);
+  userFn.addPoint(min, lo);
+  userFn.addPoint(max, hi);
+  printFnRange(userFn, "userFn");
 }
 
 function buildColorFunction(dataRange) {
@@ -277,13 +315,17 @@ function renderDicom(file) {
 
     const colorWindow = dataRange[1] - dataRange[0];
     const colorLevel = Math.round((dataRange[0] + dataRange[1]) / 2);
-    const threshold = Math.round(colorLevel + colorWindow * 0.3);
 
-    buildColorFunction(dataRange);
+    // Modality transform
     buildModalityFunction(dataRange);
-    buildVoiFn(dataRange, threshold, 0.1);
-    buildUserFn(dataRange, colorWindow, colorLevel);
+    // Values of interest transform
+    buildVoiFn(getOutputRange(modalityFn));
+    // User interactive adjustment (window/level)
+    buildUserFn(getOutputRange(voiFn), colorWindow, colorLevel);
+
+    // Compose into a single transferfunction to feed into the mapper.
     recompose(dataRange);
+    buildColorFunction(dataRange);
 
     if (!renderer.getActors().length) {
       renderer.addActor(actor);
@@ -353,6 +395,7 @@ function renderDicom(file) {
     });
     controlPanel.appendChild(composeHeading);
 
+    /*
     let softnessInput;
     const { input: threshInput } = makeSlider(
       'Threshold:',
@@ -381,6 +424,7 @@ function renderDicom(file) {
       }
     ));
     controlPanel.appendChild(softnessInput.parentElement);
+    */
 
     // ---- Reload button ----
     const reloadBtn = document.createElement('button');
@@ -427,7 +471,9 @@ fileInput.addEventListener('change', (e) => {
     loadButton.disabled = true;
     statusText.innerText = 'Downloading DICOM decoder…';
     vtkResourceLoader
-      .loadScript('https://cdn.jsdelivr.net/npm/itk-wasm@1.0.0-b.8/dist/umd/itk-wasm.js')
+      .loadScript(
+        'https://cdn.jsdelivr.net/npm/itk-wasm@1.0.0-b.8/dist/umd/itk-wasm.js'
+      )
       .then(() => {
         itkReady = true;
         renderDicom(file);
